@@ -1,0 +1,20 @@
+Categories:
+  - Multimedia
+License: GPL-3.0-or-later
+AuthorName: mrx
+SourceCode: https://github.com/MRX2827/Xgalerry
+IssueTracker: https://github.com/MRX2827/Xgalerry/issues
+
+RepoType: git
+Repo: https://github.com/MRX2827/Xgalerry
+
+Builds:
+  - versionName: 1.0.0
+    versionCode: 1
+    commit: v1.0.0
+    subdir: app
+    gradle:
+      - github
+
+CurrentVersion: 1.0.0
+CurrentVersionCode: 1

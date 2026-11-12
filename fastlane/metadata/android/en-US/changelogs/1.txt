@@ -1,0 +1,1 @@
+First release with local photo and video browsing, albums, search, favorites, and spring animations inspired by AMORX.

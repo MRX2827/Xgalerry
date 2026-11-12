@@ -1,0 +1,7 @@
+Xgalerry is a local gallery for Android. Browse photos and videos by date, open folders as albums, and find a file by its name. Keep a private list of favorites on your device.
+
+Thumbnails expand into the viewer with a spring animation inspired by AMORX. Swipe sideways to move between files, swipe down to close, or pinch and double tap to zoom into a photo. Videos play in the same viewer with pause, replay and a seek bar.
+
+Choose a light, dark, or system theme. Android 12 and later can use your wallpaper colors. On Android 14 and later, you can choose which photos and videos to share with the gallery.
+
+The app works offline and has no account, ads, or analytics.
