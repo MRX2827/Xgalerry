@@ -120,6 +120,7 @@ internal class GalleryModel(application: Application) : AndroidViewModel(applica
     )
     val settings = _settings.asStateFlow()
     val thumbnails = Thumbnails(application)
+    val deletion = MediaDeletion(resolver, viewModelScope, ::removeDeleted)
 
     @OptIn(FlowPreview::class)
     suspend fun observeLibrary() {
@@ -174,10 +175,32 @@ internal class GalleryModel(application: Application) : AndroidViewModel(applica
     }
 
     fun toggleFavorite(item: GalleryItem) {
-        val old = _settings.value
-        val favorites = if (item.key in old.favorites) old.favorites - item.key else old.favorites + item.key
+        toggleFavorites(listOf(item))
+    }
+
+    fun toggleFavorites(items: List<GalleryItem>) {
+        val keys = items.mapTo(mutableSetOf(), GalleryItem::key)
+        val favorites = _settings.value.favorites
+        setFavorites(if (favorites.containsAll(keys)) favorites - keys else favorites + keys)
+    }
+
+    private fun setFavorites(favorites: Set<String>) {
+        if (favorites == _settings.value.favorites) return
         prefs.edit().putStringSet("favorites", favorites).apply()
-        _settings.value = old.copy(favorites = favorites)
+        _settings.value = _settings.value.copy(favorites = favorites)
+    }
+
+    private fun removeDeleted(keys: Set<String>) {
+        val current = _library.value
+        _library.value = current.copy(
+            items = current.items.filterNot { it.key in keys },
+            albums = current.albums.mapNotNull { album ->
+                val remaining = album.items.filterNot { it.key in keys }
+                if (remaining.isEmpty()) null else album.copy(items = remaining)
+            }
+        )
+        setFavorites(_settings.value.favorites - keys)
+        refresh()
     }
 
     private suspend fun readMedia(video: Boolean): List<GalleryItem> = suspendCancellableCoroutine { continuation ->

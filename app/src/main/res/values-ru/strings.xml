@@ -59,4 +59,22 @@
         <item quantity="many">%d файлов</item>
         <item quantity="other">%d файла</item>
     </plurals>
+    <string name="select_item">Выделить файл</string>
+    <string name="select_all">Выделить всё</string>
+    <string name="clear_selection">Снять выделение</string>
+    <string name="delete">Удалить</string>
+    <string name="cancel">Отмена</string>
+    <string name="delete_error">Не удалось завершить удаление выбранных файлов</string>
+    <plurals name="selection_count">
+        <item quantity="one">Выделен %d файл</item>
+        <item quantity="few">Выделено %d файла</item>
+        <item quantity="many">Выделено %d файлов</item>
+        <item quantity="other">Выделено %d файла</item>
+    </plurals>
+    <plurals name="delete_confirmation">
+        <item quantity="one">Удалить %d файл с устройства навсегда?</item>
+        <item quantity="few">Удалить %d файла с устройства навсегда?</item>
+        <item quantity="many">Удалить %d файлов с устройства навсегда?</item>
+        <item quantity="other">Удалить %d файла с устройства навсегда?</item>
+    </plurals>
 </resources>

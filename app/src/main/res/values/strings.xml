@@ -58,4 +58,18 @@
         <item quantity="one">%d item</item>
         <item quantity="other">%d items</item>
     </plurals>
+    <string name="select_item">Select file</string>
+    <string name="select_all">Select all</string>
+    <string name="clear_selection">Clear selection</string>
+    <string name="delete">Delete</string>
+    <string name="cancel">Cancel</string>
+    <string name="delete_error">Couldn’t finish deleting the selected files</string>
+    <plurals name="selection_count">
+        <item quantity="one">%d selected</item>
+        <item quantity="other">%d selected</item>
+    </plurals>
+    <plurals name="delete_confirmation">
+        <item quantity="one">Permanently delete %d file from this device?</item>
+        <item quantity="other">Permanently delete %d files from this device?</item>
+    </plurals>
 </resources>

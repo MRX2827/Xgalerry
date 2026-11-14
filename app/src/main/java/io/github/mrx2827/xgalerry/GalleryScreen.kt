@@ -20,6 +20,8 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -34,6 +36,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,6 +55,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -102,7 +106,9 @@ internal fun GalleryScreen(
     model: GalleryModel,
     onAccess: () -> Unit,
     onViewerVisible: (Boolean) -> Unit,
-    onShare: (GalleryItem) -> Unit
+    onShare: (List<GalleryItem>) -> Unit,
+    onDelete: (List<GalleryItem>) -> Unit,
+    deletionBusy: Boolean
 ) {
     var section by rememberSaveable { mutableStateOf(Section.PHOTOS) }
     var filter by rememberSaveable { mutableStateOf(MediaFilter.ALL) }
@@ -112,6 +118,14 @@ internal fun GalleryScreen(
     var query by rememberSaveable { mutableStateOf("") }
     var viewerKey by rememberSaveable { mutableStateOf<String?>(null) }
     var session by remember { mutableStateOf<ViewerSession?>(null) }
+    var selection by rememberSaveable(
+        stateSaver = Saver<Set<String>, ArrayList<String>>(
+            save = { ArrayList(it) }, restore = { it.toSet() }
+        )
+    ) { mutableStateOf(emptySet<String>()) }
+    var legacyDeleteKeys by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
+    val keyboard = LocalSoftwareKeyboardController.current
+    val availableKeys = remember(library.items) { library.items.mapTo(hashSetOf(), GalleryItem::key) }
     val album = library.albums.firstOrNull { it.key == albumKey }
     val inAlbum = section == Section.ALBUMS && album != null
     val page = GalleryPage(
@@ -124,16 +138,47 @@ internal fun GalleryScreen(
         if (!library.access.allowed) {
             viewerKey = null
             session = null
+            selection = emptySet()
+            legacyDeleteKeys = arrayListOf()
+        }
+    }
+    LaunchedEffect(availableKeys, library.loading, library.failed) {
+        if (!library.loading && !library.failed) {
+            selection = selection.intersect(availableKeys)
+            val currentKey = viewerKey
+            if (currentKey != null && currentKey !in availableKeys) {
+                viewerKey = null
+                session = null
+            }
         }
     }
     SideEffect { onViewerVisible(session != null) }
 
     fun closeSearch() {
+        selection = emptySet()
         query = ""
         searchOpen = false
     }
-    BackHandler(enabled = session == null && (searchOpen || inAlbum)) {
-        if (searchOpen) closeSearch() else albumKey = null
+
+    fun toggleSelection(item: GalleryItem) {
+        if (deletionBusy) return
+        if (selection.isEmpty()) keyboard?.hide()
+        selection = if (item.key in selection) selection - item.key else selection + item.key
+    }
+
+    fun requestDeletion(items: List<GalleryItem>) {
+        val current = items.filter { it.key in availableKeys }
+        if (current.isEmpty() || deletionBusy) return
+        if (Build.VERSION.SDK_INT == 29) legacyDeleteKeys = ArrayList(current.map(GalleryItem::key))
+        else onDelete(current)
+    }
+
+    BackHandler(enabled = session == null && (selection.isNotEmpty() || searchOpen || inAlbum)) {
+        when {
+            selection.isNotEmpty() -> selection = emptySet()
+            searchOpen -> closeSearch()
+            else -> albumKey = null
+        }
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -144,7 +189,7 @@ internal fun GalleryScreen(
         ) {
             Column(Modifier.fillMaxSize().statusBarsPadding().displayCutoutPadding()) {
                 if (searchOpen) {
-                    SearchBar(query, { query = it }, ::closeSearch)
+                    SearchBar(query, { selection = emptySet(); query = it }, ::closeSearch)
                 } else {
                     AnimatedContent(
                         targetState = album.takeIf { inAlbum },
@@ -154,9 +199,9 @@ internal fun GalleryScreen(
                     ) { headerAlbum ->
                         GalleryHeader(
                             album = headerAlbum,
-                            onBack = { albumKey = null },
-                            onSearch = { searchOpen = true },
-                            onSettings = { settingsOpen = true }
+                            onBack = { selection = emptySet(); albumKey = null },
+                            onSearch = { selection = emptySet(); searchOpen = true },
+                            onSettings = { selection = emptySet(); settingsOpen = true }
                         )
                     }
                 }
@@ -188,7 +233,20 @@ internal fun GalleryScreen(
                         GalleryPageContent(
                             page = shownPage, album = visibleAlbum, library = library, settings = settings,
                             searchOpen = searchOpen, query = query, active = active, viewerKey = viewerKey,
-                            thumbnails = model.thumbnails, onFilter = { if (active) filter = it },
+                            thumbnails = model.thumbnails,
+                            selection = if (active) selection else emptySet(),
+                            deletionBusy = deletionBusy,
+                            onToggleSelection = { if (active && session == null) toggleSelection(it) },
+                            onSelectAll = { selection = it },
+                            onShare = onShare,
+                            onFavorites = model::toggleFavorites,
+                            onDelete = ::requestDeletion,
+                            onFilter = {
+                                if (active) {
+                                    selection = emptySet()
+                                    filter = it
+                                }
+                            },
                             onAccess = onAccess, onRefresh = model::refresh,
                             onAlbum = { if (active) albumKey = it.key },
                             onRestore = { files, positions ->
@@ -218,6 +276,7 @@ internal fun GalleryScreen(
             ) {
                 GalleryNav(section, Modifier.navigationBarsPadding().padding(bottom = 9.dp)) {
                     if (section != it) {
+                        selection = emptySet()
                         section = it
                         albumKey = null
                     }
@@ -235,13 +294,32 @@ internal fun GalleryScreen(
                 findTile = active.findTile,
                 onCurrent = { viewerKey = it.key },
                 onFavorite = model::toggleFavorite,
-                onShare = onShare,
+                onShare = { onShare(listOf(it)) },
+                onDelete = { requestDeletion(listOf(it)) },
+                deletionBusy = deletionBusy,
                 onClosed = {
                     viewerKey = null
                     session = null
                 }
             )
         }
+    }
+    if (legacyDeleteKeys.isNotEmpty()) {
+        val count = legacyDeleteKeys.size
+        val dismiss = { legacyDeleteKeys = arrayListOf() }
+        AlertDialog(
+            onDismissRequest = dismiss,
+            title = { Text(stringResource(R.string.delete)) },
+            text = { Text(pluralStringResource(R.plurals.delete_confirmation, count, count)) },
+            dismissButton = { TextButton(dismiss) { Text(stringResource(R.string.cancel)) } },
+            confirmButton = {
+                TextButton({
+                    val keys = legacyDeleteKeys.toHashSet()
+                    dismiss()
+                    onDelete(library.items.filter { it.key in keys })
+                }) { Text(stringResource(R.string.delete), color = MaterialTheme.colorScheme.error) }
+            }
+        )
     }
 }
 
@@ -256,6 +334,13 @@ private fun GalleryPageContent(
     active: Boolean,
     viewerKey: String?,
     thumbnails: Thumbnails,
+    selection: Set<String>,
+    deletionBusy: Boolean,
+    onToggleSelection: (GalleryItem) -> Unit,
+    onSelectAll: (Set<String>) -> Unit,
+    onShare: (List<GalleryItem>) -> Unit,
+    onFavorites: (List<GalleryItem>) -> Unit,
+    onDelete: (List<GalleryItem>) -> Unit,
     onFilter: (MediaFilter) -> Unit,
     onAccess: () -> Unit,
     onRefresh: () -> Unit,
@@ -286,6 +371,9 @@ private fun GalleryPageContent(
         }
     }
     val files = result?.first.orEmpty()
+    val selected = remember(files, selection) {
+        if (selection.isEmpty()) emptyList() else files.filter { it.key in selection }
+    }
     LaunchedEffect(active, files, viewerKey) {
         if (active && viewerKey != null && files.isNotEmpty()) onRestore(files, positions)
     }
@@ -323,6 +411,21 @@ private fun GalleryPageContent(
                 Icon(Icons.Rounded.ChevronRight, stringResource(R.string.manage_access))
             }
         }
+        if (selected.isNotEmpty()) {
+            val allSelected = selected.size == files.size
+            val allFavorite = selected.all { it.key in settings.favorites }
+            SelectionBar(
+                count = selected.size,
+                allSelected = allSelected,
+                allFavorite = allFavorite,
+                enabled = !deletionBusy,
+                onClear = { onSelectAll(emptySet()) },
+                onSelectAll = { onSelectAll(if (allSelected) emptySet() else files.mapTo(hashSetOf(), GalleryItem::key)) },
+                onShare = { onShare(selected) },
+                onFavorites = { onFavorites(selected) },
+                onDelete = { onDelete(selected) }
+            )
+        }
         val contentModifier = Modifier.weight(1f).fillMaxWidth()
         when {
             !library.access.allowed -> EmptyGallery(
@@ -351,10 +454,58 @@ private fun GalleryPageContent(
             else -> {
                 val gridState = rememberLazyGridState()
                 if (searchOpen) LaunchedEffect(query) { gridState.scrollToItem(0) }
-                MediaGrid(result?.second.orEmpty(), gridState, thumbnails, positions, viewerKey, contentModifier) {
-                    onOpen(it, files, positions)
-                }
+                MediaGrid(
+                    result?.second.orEmpty(), gridState, thumbnails, positions, viewerKey,
+                    selection, active && !deletionBusy, contentModifier,
+                    onItem = { if (selection.isEmpty()) onOpen(it, files, positions) else onToggleSelection(it) },
+                    onLongPress = onToggleSelection
+                )
             }
+        }
+    }
+}
+
+@Composable
+private fun SelectionBar(
+    count: Int,
+    allSelected: Boolean,
+    allFavorite: Boolean,
+    enabled: Boolean,
+    onClear: () -> Unit,
+    onSelectAll: () -> Unit,
+    onShare: () -> Unit,
+    onFavorites: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    Surface(
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 5.dp),
+        shape = RoundedCornerShape(24.dp), color = colors.surfaceContainerHigh
+    ) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 3.dp, vertical = 3.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClear, enabled = enabled) {
+                Icon(Icons.Rounded.Close, stringResource(R.string.clear_selection))
+            }
+            Text(pluralStringResource(R.plurals.selection_count, count, count), Modifier.weight(1f),
+                maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
+            IconButton(onSelectAll, enabled = enabled) {
+                Icon(if (allSelected) Icons.Rounded.Deselect else Icons.Rounded.SelectAll,
+                    stringResource(if (allSelected) R.string.clear_selection else R.string.select_all))
+            }
+            IconButton(onFavorites, enabled = enabled) {
+                Icon(if (allFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                    stringResource(if (allFavorite) R.string.remove_favorite else R.string.add_favorite))
+            }
+            IconButton(onShare, enabled = enabled) {
+                Icon(Icons.Rounded.Share, stringResource(R.string.share))
+            }
+            FilledTonalIconButton(
+                onDelete, enabled = enabled,
+                colors = IconButtonDefaults.filledTonalIconButtonColors(
+                    containerColor = colors.errorContainer, contentColor = colors.onErrorContainer
+                )
+            ) { Icon(Icons.Rounded.Delete, stringResource(R.string.delete)) }
         }
     }
 }
@@ -502,8 +653,11 @@ private fun MediaGrid(
     thumbnails: Thumbnails,
     positions: TilePositions,
     hiddenKey: String?,
+    selection: Set<String>,
+    enabled: Boolean,
     modifier: Modifier,
-    onItem: (GalleryItem) -> Unit
+    onItem: (GalleryItem) -> Unit,
+    onLongPress: (GalleryItem) -> Unit
 ) {
     val configuration = LocalConfiguration.current
     val locale = configuration.locales[0]
@@ -543,17 +697,44 @@ private fun MediaGrid(
             items(day.items, key = { it.key }, contentType = { "media" }) { item ->
                 DisposableEffect(item.key) { onDispose { positions.tiles.remove(item.key) } }
                 val accessibleName = item.name.ifBlank { stringResource(if (item.video) R.string.videos else R.string.photos) }
+                val checked = item.key in selection
+                val selecting = selection.isNotEmpty()
+                val shape = RoundedCornerShape(14.dp)
+                val colors = MaterialTheme.colorScheme
                 Box(
                     Modifier.aspectRatio(1f).onGloballyPositioned { coords ->
                         positions.tiles[item.key] = Rect(coords.positionInRoot(), Size(coords.size.width.toFloat(), coords.size.height.toFloat()))
                     }.graphicsLayer { alpha = if (hiddenKey == item.key) 0f else 1f }
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                        .semantics { contentDescription = accessibleName }
-                        .clickable(role = Role.Button) { onItem(item) }
+                        .clip(shape)
+                        .background(colors.surfaceContainerHigh)
+                        .semantics {
+                            contentDescription = accessibleName
+                            if (selecting) selected = checked
+                        }
+                        .combinedClickable(
+                            enabled = enabled,
+                            role = if (selecting) Role.Checkbox else Role.Button,
+                            onLongClickLabel = stringResource(R.string.select_item),
+                            onLongClick = { onLongPress(item) },
+                            onClick = { onItem(item) }
+                        )
                 ) {
                     MediaThumbnail(item, thumbnails, size, Modifier.fillMaxSize())
                     if (item.video) VideoBadge(item.duration, Modifier.align(Alignment.BottomEnd).padding(5.dp))
+                    if (checked) {
+                        Box(Modifier.matchParentSize().background(colors.primary.copy(alpha = 0.25f))
+                            .border(3.dp, colors.primary, shape))
+                    }
+                    if (selecting) {
+                        Box(
+                            Modifier.align(Alignment.TopEnd).padding(7.dp).size(25.dp).clip(CircleShape)
+                                .background(if (checked) colors.primary else Color.Black.copy(alpha = 0.55f))
+                                .border(1.dp, if (checked) colors.primary else Color.White, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (checked) Icon(Icons.Rounded.Check, null, Modifier.size(17.dp), tint = colors.onPrimary)
+                        }
+                    }
                 }
             }
         }

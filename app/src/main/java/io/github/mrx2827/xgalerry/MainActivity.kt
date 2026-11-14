@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package io.github.mrx2827.xgalerry
 
+import android.app.Activity
+import android.content.ClipData
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -11,6 +13,8 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
@@ -25,13 +29,10 @@ import androidx.compose.ui.Modifier
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
-import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
-    private var refreshLibrary: (() -> Unit)? = null
+    private val model: GalleryModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,12 +42,43 @@ class MainActivity : ComponentActivity() {
         )
 
         setContent {
-            val model: GalleryModel = viewModel()
             val library by model.library.collectAsStateWithLifecycle()
             val settings by model.settings.collectAsStateWithLifecycle()
             val permissionLauncher = rememberLauncherForActivityResult(
                 ActivityResultContracts.RequestMultiplePermissions()
             ) { model.refresh() }
+            val deleteLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.StartIntentSenderForResult()
+            ) { result ->
+                if (result.data?.hasExtra(ActivityResultContracts.StartIntentSenderForResult.EXTRA_SEND_INTENT_EXCEPTION) == true) {
+                    model.deletion.fail()
+                } else {
+                    model.deletion.confirm(result.resultCode == Activity.RESULT_OK)
+                }
+                model.refresh()
+            }
+            val deletePrompt by model.deletion.prompt.collectAsStateWithLifecycle()
+            val deletionBusy by model.deletion.busy.collectAsStateWithLifecycle()
+            val deletionErrors by model.deletion.errors.collectAsStateWithLifecycle()
+            var displayedDeletionErrors by androidx.compose.runtime.saveable.rememberSaveable {
+                androidx.compose.runtime.mutableIntStateOf(deletionErrors)
+            }
+            LaunchedEffect(deletePrompt) {
+                model.deletion.takePrompt()?.let { pending ->
+                    try {
+                        deleteLauncher.launch(IntentSenderRequest.Builder(pending).build())
+                    } catch (_: RuntimeException) {
+                        model.deletion.fail()
+                        model.refresh()
+                    }
+                }
+            }
+            LaunchedEffect(deletionErrors) {
+                if (deletionErrors != displayedDeletionErrors) {
+                    displayedDeletionErrors = deletionErrors
+                    Toast.makeText(this@MainActivity, R.string.delete_error, Toast.LENGTH_LONG).show()
+                }
+            }
             val requestAccess = {
                 val permissions = mediaPermissions()
                 val asked = getPreferences(MODE_PRIVATE).getBoolean("requested_media", false)
@@ -61,11 +93,7 @@ class MainActivity : ComponentActivity() {
             }
 
             LaunchedEffect(model) {
-                refreshLibrary = model::refresh
-                model.refresh()
-                lifecycleScope.launch {
-                    repeatOnLifecycle(Lifecycle.State.STARTED) { model.observeLibrary() }
-                }
+                repeatOnLifecycle(Lifecycle.State.STARTED) { model.observeLibrary() }
             }
 
             GalleryTheme(settings.theme, settings.dynamic) { dark ->
@@ -84,7 +112,9 @@ class MainActivity : ComponentActivity() {
                         model = model,
                         onAccess = requestAccess,
                         onViewerVisible = { viewerVisible = it },
-                        onShare = ::share
+                        onShare = ::share,
+                        onDelete = model.deletion::start,
+                        deletionBusy = deletionBusy
                     )
                 }
             }
@@ -93,14 +123,25 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        refreshLibrary?.invoke()
+        model.refresh()
     }
 
-    private fun share(item: GalleryItem) {
-        val intent = Intent(Intent.ACTION_SEND).apply {
-            type = item.mime
-            putExtra(Intent.EXTRA_STREAM, item.uri)
-            clipData = android.content.ClipData.newUri(contentResolver, item.name, item.uri)
+    private fun share(items: List<GalleryItem>) {
+        val first = items.firstOrNull() ?: return
+        val single = items.size == 1
+        val mime = when {
+            items.all { it.mime == first.mime } -> first.mime
+            items.all { it.video } -> "video/*"
+            items.none { it.video } -> "image/*"
+            else -> "*/*"
+        }
+        val intent = Intent(if (single) Intent.ACTION_SEND else Intent.ACTION_SEND_MULTIPLE).apply {
+            type = mime
+            if (single) putExtra(Intent.EXTRA_STREAM, first.uri)
+            else putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(items.map(GalleryItem::uri)))
+            clipData = ClipData.newUri(contentResolver, first.name, first.uri).also { clip ->
+                items.drop(1).forEach { clip.addItem(ClipData.Item(it.uri)) }
+            }
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         try {

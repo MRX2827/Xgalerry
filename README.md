@@ -2,7 +2,7 @@
 
 Xgalerry is a local Android gallery for photos and videos by **mrx**. It uses Jetpack Compose, Material 3 Expressive, Android MediaStore and Media3. The app is available in English and Russian and supports Android 10 (API 29) and later.
 
-The gallery animates between tabs, filters and album contents. The viewer expands from a thumbnail, follows a downward swipe, and returns to the thumbnail when it is visible. It supports horizontal paging, pinch and double-tap zoom, video seeking and replay, sharing, and on-device favorites. Use the settings sheet to select a system, light, or dark theme and optionally match the wallpaper on Android 12 and later.
+The gallery animates between tabs, filters and album contents. The viewer expands from a thumbnail, follows a downward swipe, and returns to the thumbnail when it is visible. It supports horizontal paging, pinch and double-tap zoom, video seeking and replay, sharing, and on-device favorites. Long-press a thumbnail to select files, then delete, share, or favorite them together. You can also delete individual files in the viewer. Android asks for confirmation before deleting media. Use the settings sheet to select a system, light, or dark theme and optionally match the wallpaper on Android 12 and later.
 
 ## Build
 
@@ -18,7 +18,7 @@ The unsigned APK is generated under `app/build/outputs/apk/github/release/`. The
 
 Store listings and artwork are in `fastlane/metadata/android/`. The application ID is `io.github.mrx2827.xgalerry`. The same `githubRelease` variant is used for a source build. It contains no network permission, proprietary services, or bundled demo media.
 
-The [F-Droid build recipe](fdroid/io.github.mrx2827.xgalerry.yml) points to the public repository and the `v1.0.0` tag. Follow the [F-Droid submission guide](https://f-droid.org/en/docs/Submitting_to_F-Droid_Quick_Start_Guide/) to propose the app for inclusion. The F-Droid build infrastructure compiles and signs the app under its normal source-build process.
+The [F-Droid build recipe](fdroid/io.github.mrx2827.xgalerry.yml) points to the public repository and the `v1.1.0` tag. Follow the [F-Droid submission guide](https://f-droid.org/en/docs/Submitting_to_F-Droid_Quick_Start_Guide/) to propose the app for inclusion. The F-Droid build infrastructure compiles and signs the app under its normal source-build process.
 
 ## License and attribution
 

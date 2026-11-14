@@ -82,6 +82,8 @@ internal fun MediaViewer(
     onCurrent: (GalleryItem) -> Unit,
     onFavorite: (GalleryItem) -> Unit,
     onShare: (GalleryItem) -> Unit,
+    onDelete: (GalleryItem) -> Unit,
+    deletionBusy: Boolean,
     onClosed: () -> Unit
 ) {
     val pager = rememberPagerState(initialPage = session.start) { session.items.size }
@@ -241,7 +243,10 @@ internal fun MediaViewer(
             ViewerTopBar(current, pager.currentPage + 1, session.items.size, ::close) { details = true }
         }
         AnimatedVisibility(chromeVisible, Modifier.align(Alignment.BottomCenter), enter = fadeIn(), exit = fadeOut()) {
-            ViewerActions(current.key in favorites, { onFavorite(current) }, { onShare(current) })
+            ViewerActions(
+                current.key in favorites, { onFavorite(current) }, { onShare(current) },
+                { onDelete(current) }, deletionBusy
+            )
         }
     }
 
@@ -279,7 +284,10 @@ private fun ViewerTopBar(item: GalleryItem, index: Int, count: Int, onClose: () 
 }
 
 @Composable
-private fun ViewerActions(favorite: Boolean, onFavorite: () -> Unit, onShare: () -> Unit) {
+private fun ViewerActions(
+    favorite: Boolean, onFavorite: () -> Unit, onShare: () -> Unit,
+    onDelete: () -> Unit, deletionBusy: Boolean
+) {
     Row(
         Modifier.navigationBarsPadding().padding(bottom = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(5.dp)
@@ -290,16 +298,17 @@ private fun ViewerActions(favorite: Boolean, onFavorite: () -> Unit, onShare: ()
             onFavorite, selected = favorite
         )
         ViewerButton(Icons.Rounded.Share, R.string.share, onShare)
+        ViewerButton(Icons.Rounded.Delete, R.string.delete, onDelete, enabled = !deletionBusy)
     }
 }
 
 @Composable
 internal fun ViewerButton(
     icon: ImageVector, label: Int, onClick: () -> Unit, modifier: Modifier = Modifier,
-    selected: Boolean = false
+    selected: Boolean = false, enabled: Boolean = true
 ) {
     FilledIconButton(
-        onClick = onClick, modifier = modifier.size(48.dp), shape = CircleShape,
+        onClick = onClick, enabled = enabled, modifier = modifier.size(48.dp), shape = CircleShape,
         colors = IconButtonDefaults.filledIconButtonColors(
             containerColor = if (selected) ViewerAccent else ViewerControl,
             contentColor = if (selected) Color(0xFF23330F) else Color.White
