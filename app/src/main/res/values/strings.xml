@@ -17,6 +17,12 @@
     <string name="theme_dark">Dark</string>
     <string name="dynamic_color">Wallpaper colors</string>
     <string name="media_access">Media access</string>
+    <string name="media_management">Deletion permission</string>
+    <string name="media_management_enabled">Allowed</string>
+    <string name="media_management_explanation">Allow Xgalerry to manage media in Android settings once. Xgalerry will then ask you to confirm deletions here. Android may still ask for confirmation if you’ve shared only selected photos or videos.</string>
+    <string name="open_system_settings">Open Android settings</string>
+    <string name="use_android_confirmation">Continue without access</string>
+    <string name="media_management_unavailable">Media management settings are unavailable on this device</string>
     <string name="manage_access">Manage access</string>
     <string name="allow_access">Allow access</string>
     <string name="limited_access">Access is limited</string>

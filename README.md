@@ -2,7 +2,9 @@
 
 Xgalerry is a local Android gallery for photos and videos by **mrx**. It uses Jetpack Compose, Material 3 Expressive, Android MediaStore and Media3. The app is available in English and Russian and supports Android 10 (API 29) and later.
 
-The gallery animates between tabs, filters and album contents. The viewer expands from a thumbnail, follows a downward swipe, and returns to the thumbnail when it is visible. It supports horizontal paging, pinch and double-tap zoom, video seeking and replay, sharing, and on-device favorites. Long-press a thumbnail to select files, then delete, share, or favorite them together. You can also delete individual files in the viewer. Android asks for confirmation before deleting media. Use the settings sheet to select a system, light, or dark theme and optionally match the wallpaper on Android 12 and later.
+The gallery animates between tabs, filters and album contents. The viewer expands from a thumbnail, follows a downward swipe, and returns to the thumbnail when it is visible. It supports horizontal paging, pinch and double-tap zoom, video seeking and replay, sharing, and on-device favorites. Long-press a thumbnail to select files, then delete, share, or favorite them together. The grid animates selection and file removal. You can also delete individual files in the viewer.
+
+On Android 12 and later, grant Xgalerry media management access once from **Settings → Deletion permission** to confirm deletions inside the app. With partial photo or video access, or when media management is unavailable, Android can require its own confirmation. The settings sheet also lets you select a system, light or dark theme and optionally match the wallpaper on Android 12 and later.
 
 ## Build
 
@@ -18,13 +20,13 @@ The unsigned APK is generated under `app/build/outputs/apk/github/release/`. The
 
 Store listings and artwork are in `fastlane/metadata/android/`. The application ID is `io.github.mrx2827.xgalerry`. The same `githubRelease` variant is used for a source build. It contains no network permission, proprietary services, or bundled demo media.
 
-The [F-Droid build recipe](fdroid/io.github.mrx2827.xgalerry.yml) points to the public repository and the `v1.1.0` tag. Follow the [F-Droid submission guide](https://f-droid.org/en/docs/Submitting_to_F-Droid_Quick_Start_Guide/) to propose the app for inclusion. The F-Droid build infrastructure compiles and signs the app under its normal source-build process.
+The [F-Droid build recipe](fdroid/io.github.mrx2827.xgalerry.yml) points to the public repository and the `v1.2.0` tag. Follow the [F-Droid submission guide](https://f-droid.org/en/docs/Submitting_to_F-Droid_Quick_Start_Guide/) to propose the app for inclusion. The F-Droid build infrastructure compiles and signs the app under its normal source-build process.
 
 ## License and attribution
 
 The Xgalerry source code is licensed under [GPL-3.0-or-later](LICENSE). The viewer spring, corner blend and dismissal thresholds in `ViewerMotion.kt` were adapted from the AMORX fork of [Rhythm](https://github.com/cromaguy/Rhythm), by Anjishnu Nandi and contributors.
 
-The launcher and store icon were supplied by mrx. Confirm the applicable redistribution terms before submitting the icon to [F-Droid](https://f-droid.org/en/docs/Inclusion_Policy/).
+The launcher and store icon introduced in v1.2.0 was created for Xgalerry with ImageGen and is dedicated to the public domain under [CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/). This dedication covers the launcher and in-app artwork at `app/src/main/res/drawable-nodpi/xgalerry_icon.png` and both Fastlane `images/icon.png` copies.
 
 The store screenshots under `fastlane/metadata/android/` show sample media created with the built-in ImageGen tool. The sample media is used for the store listing only.
 

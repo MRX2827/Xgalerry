@@ -6,6 +6,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
@@ -79,6 +80,7 @@ internal fun MediaViewer(
     thumbnails: Thumbnails,
     favorites: Set<String>,
     findTile: (String) -> Rect?,
+    availableKeys: Set<String>?,
     onCurrent: (GalleryItem) -> Unit,
     onFavorite: (GalleryItem) -> Unit,
     onShare: (GalleryItem) -> Unit,
@@ -90,6 +92,7 @@ internal fun MediaViewer(
     val current = session.items[pager.currentPage]
     var source by remember { mutableStateOf(session.source) }
     var closing by remember { mutableStateOf(false) }
+    var removed by remember { mutableStateOf(false) }
     var controls by rememberSaveable { mutableStateOf(true) }
     var details by rememberSaveable { mutableStateOf(false) }
     var zoomOwner by remember { mutableStateOf<String?>(null) }
@@ -120,9 +123,18 @@ internal fun MediaViewer(
 
     BackHandler { if (details) details = false else close() }
 
+    LaunchedEffect(current.key, availableKeys) {
+        if (availableKeys != null && current.key !in availableKeys && !closing) {
+            returnJob?.cancel()
+            details = false
+            source = null
+            removed = true
+            closing = true
+        }
+    }
     LaunchedEffect(closing) {
         if (closing) {
-            opening.animateTo(0f, viewerSpring)
+            opening.animateTo(0f, if (removed) tween(235) else viewerSpring)
             closeCallback()
         } else {
             opening.animateTo(1f, viewerSpring)
@@ -195,11 +207,12 @@ internal fun MediaViewer(
                     val endScale = destination.width / size.width
                     if (origin == null) {
                         alpha = progress
-                        val scale = lerp(0.91f, endScale, progress)
+                        val scale = lerp(if (removed) 0.85f else 0.91f, endScale, progress)
                         scaleX = scale
                         scaleY = scale
                         translationX = 0f
-                        translationY = drag * progress + (1f - progress) * size.height * 0.18f
+                        val exitOffset = if (removed) 0.035f else 0.18f
+                        translationY = drag * progress + (1f - progress) * size.height * exitOffset
                     } else {
                         alpha = 1f
                         val fittedWidth = min(size.width, size.height * motionAspect).coerceAtLeast(1f)

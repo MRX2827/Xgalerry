@@ -16,6 +16,12 @@
     <string name="theme_dark">Тёмная</string>
     <string name="dynamic_color">Цвета обоев</string>
     <string name="media_access">Доступ к файлам</string>
+    <string name="media_management">Разрешение на удаление</string>
+    <string name="media_management_enabled">Разрешено</string>
+    <string name="media_management_explanation">Один раз разрешите Xgalerry управлять медиа в настройках Android. После этого Xgalerry будет подтверждать удаление здесь. Если доступ открыт только к выбранным фото или видео, Android может по-прежнему показывать своё подтверждение.</string>
+    <string name="open_system_settings">Открыть настройки Android</string>
+    <string name="use_android_confirmation">Продолжить без доступа</string>
+    <string name="media_management_unavailable">На этом устройстве настройки управления медиа недоступны</string>
     <string name="manage_access">Управлять доступом</string>
     <string name="allow_access">Разрешить доступ</string>
     <string name="limited_access">Доступ ограничен</string>

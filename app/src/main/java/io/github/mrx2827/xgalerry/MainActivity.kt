@@ -2,10 +2,13 @@
 package io.github.mrx2827.xgalerry
 
 import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.provider.MediaStore
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -33,6 +36,7 @@ import androidx.lifecycle.repeatOnLifecycle
 
 class MainActivity : ComponentActivity() {
     private val model: GalleryModel by viewModels()
+    private var canManageMedia by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -111,6 +115,9 @@ class MainActivity : ComponentActivity() {
                         dark = dark,
                         model = model,
                         onAccess = requestAccess,
+                        canManageMedia = canManageMedia,
+                        onManageMedia = ::openMediaManagement,
+                        claimMediaManagementOffer = ::claimMediaManagementOffer,
                         onViewerVisible = { viewerVisible = it },
                         onShare = ::share,
                         onDelete = model.deletion::start,
@@ -123,7 +130,29 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        canManageMedia = Build.VERSION.SDK_INT >= 31 && MediaStore.canManageMedia(this)
         model.refresh()
+    }
+
+    private fun claimMediaManagementOffer(): Boolean {
+        val preferences = getPreferences(MODE_PRIVATE)
+        val key = "offered_media_management"
+        if (preferences.getBoolean(key, false)) return false
+        preferences.edit().putBoolean(key, true).apply()
+        return true
+    }
+
+    private fun openMediaManagement() {
+        if (Build.VERSION.SDK_INT < 31) return
+        try {
+            startActivity(Intent(Settings.ACTION_REQUEST_MANAGE_MEDIA, Uri.parse("package:$packageName")))
+        } catch (_: ActivityNotFoundException) {
+            try {
+                startActivity(Intent(Settings.ACTION_REQUEST_MANAGE_MEDIA))
+            } catch (_: ActivityNotFoundException) {
+                Toast.makeText(this, R.string.media_management_unavailable, Toast.LENGTH_LONG).show()
+            }
+        }
     }
 
     private fun share(items: List<GalleryItem>) {

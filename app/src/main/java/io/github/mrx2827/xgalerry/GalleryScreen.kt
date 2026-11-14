@@ -10,9 +10,14 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
@@ -105,6 +110,9 @@ internal fun GalleryScreen(
     dark: Boolean,
     model: GalleryModel,
     onAccess: () -> Unit,
+    canManageMedia: Boolean,
+    onManageMedia: () -> Unit,
+    claimMediaManagementOffer: () -> Boolean,
     onViewerVisible: (Boolean) -> Unit,
     onShare: (List<GalleryItem>) -> Unit,
     onDelete: (List<GalleryItem>) -> Unit,
@@ -123,7 +131,8 @@ internal fun GalleryScreen(
             save = { ArrayList(it) }, restore = { it.toSet() }
         )
     ) { mutableStateOf(emptySet<String>()) }
-    var legacyDeleteKeys by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
+    var deleteKeys by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
+    var permissionOfferKeys by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
     val keyboard = LocalSoftwareKeyboardController.current
     val availableKeys = remember(library.items) { library.items.mapTo(hashSetOf(), GalleryItem::key) }
     val album = library.albums.firstOrNull { it.key == albumKey }
@@ -139,16 +148,16 @@ internal fun GalleryScreen(
             viewerKey = null
             session = null
             selection = emptySet()
-            legacyDeleteKeys = arrayListOf()
+            deleteKeys = arrayListOf()
+            permissionOfferKeys = arrayListOf()
         }
     }
     LaunchedEffect(availableKeys, library.loading, library.failed) {
         if (!library.loading && !library.failed) {
             selection = selection.intersect(availableKeys)
             val currentKey = viewerKey
-            if (currentKey != null && currentKey !in availableKeys) {
+            if (session == null && currentKey != null && currentKey !in availableKeys) {
                 viewerKey = null
-                session = null
             }
         }
     }
@@ -169,8 +178,17 @@ internal fun GalleryScreen(
     fun requestDeletion(items: List<GalleryItem>) {
         val current = items.filter { it.key in availableKeys }
         if (current.isEmpty() || deletionBusy) return
-        if (Build.VERSION.SDK_INT == 29) legacyDeleteKeys = ArrayList(current.map(GalleryItem::key))
-        else onDelete(current)
+        val canReadAll = current.all {
+            if (it.video) library.access.videos else library.access.photos
+        }
+        when {
+            Build.VERSION.SDK_INT == 29 || (canManageMedia && canReadAll) ->
+                deleteKeys = ArrayList(current.map(GalleryItem::key))
+            Build.VERSION.SDK_INT >= 31 && canReadAll && claimMediaManagementOffer() -> {
+                permissionOfferKeys = ArrayList(current.map(GalleryItem::key))
+            }
+            else -> onDelete(current)
+        }
     }
 
     BackHandler(enabled = session == null && (selection.isNotEmpty() || searchOpen || inAlbum)) {
@@ -284,7 +302,7 @@ internal fun GalleryScreen(
             }
         }
         if (settingsOpen) {
-            SettingsSheet(settings, dark, model, onAccess) { settingsOpen = false }
+            SettingsSheet(settings, dark, model, onAccess, canManageMedia, onManageMedia) { settingsOpen = false }
         }
         session?.let { active ->
             MediaViewer(
@@ -292,6 +310,7 @@ internal fun GalleryScreen(
                 thumbnails = model.thumbnails,
                 favorites = settings.favorites,
                 findTile = active.findTile,
+                availableKeys = availableKeys.takeUnless { library.loading || library.failed },
                 onCurrent = { viewerKey = it.key },
                 onFavorite = model::toggleFavorite,
                 onShare = { onShare(listOf(it)) },
@@ -304,9 +323,9 @@ internal fun GalleryScreen(
             )
         }
     }
-    if (legacyDeleteKeys.isNotEmpty()) {
-        val count = legacyDeleteKeys.size
-        val dismiss = { legacyDeleteKeys = arrayListOf() }
+    if (deleteKeys.isNotEmpty()) {
+        val count = deleteKeys.size
+        val dismiss = { deleteKeys = arrayListOf() }
         AlertDialog(
             onDismissRequest = dismiss,
             title = { Text(stringResource(R.string.delete)) },
@@ -314,10 +333,31 @@ internal fun GalleryScreen(
             dismissButton = { TextButton(dismiss) { Text(stringResource(R.string.cancel)) } },
             confirmButton = {
                 TextButton({
-                    val keys = legacyDeleteKeys.toHashSet()
+                    val keys = deleteKeys.toHashSet()
                     dismiss()
                     onDelete(library.items.filter { it.key in keys })
                 }) { Text(stringResource(R.string.delete), color = MaterialTheme.colorScheme.error) }
+            }
+        )
+    }
+    if (permissionOfferKeys.isNotEmpty()) {
+        val dismiss = { permissionOfferKeys = arrayListOf() }
+        AlertDialog(
+            onDismissRequest = dismiss,
+            title = { Text(stringResource(R.string.media_management)) },
+            text = { Text(stringResource(R.string.media_management_explanation)) },
+            dismissButton = {
+                TextButton({
+                    val keys = permissionOfferKeys.toHashSet()
+                    dismiss()
+                    onDelete(library.items.filter { it.key in keys })
+                }) { Text(stringResource(R.string.use_android_confirmation)) }
+            },
+            confirmButton = {
+                TextButton({
+                    dismiss()
+                    onManageMedia()
+                }) { Text(stringResource(R.string.open_system_settings)) }
             }
         )
     }
@@ -411,14 +451,20 @@ private fun GalleryPageContent(
                 Icon(Icons.Rounded.ChevronRight, stringResource(R.string.manage_access))
             }
         }
-        if (selected.isNotEmpty()) {
+        var previousCount by remember { mutableIntStateOf(0) }
+        SideEffect { if (selected.isNotEmpty()) previousCount = selected.size }
+        AnimatedVisibility(
+            visible = selected.isNotEmpty(),
+            enter = expandVertically(tween(220), expandFrom = Alignment.Top) + fadeIn(tween(150, 40)),
+            exit = shrinkVertically(tween(210), shrinkTowards = Alignment.Top) + fadeOut(tween(120))
+        ) {
             val allSelected = selected.size == files.size
             val allFavorite = selected.all { it.key in settings.favorites }
             SelectionBar(
-                count = selected.size,
+                count = selected.size.takeIf { it > 0 } ?: previousCount,
                 allSelected = allSelected,
                 allFavorite = allFavorite,
-                enabled = !deletionBusy,
+                enabled = active && selected.isNotEmpty() && !deletionBusy,
                 onClear = { onSelectAll(emptySet()) },
                 onSelectAll = { onSelectAll(if (allSelected) emptySet() else files.mapTo(hashSetOf(), GalleryItem::key)) },
                 onShare = { onShare(selected) },
@@ -444,23 +490,34 @@ private fun GalleryPageContent(
                 EmptyGallery(Icons.Rounded.Folder, R.string.empty_albums, null, contentModifier)
             showAlbums -> AlbumGrid(library.albums, thumbnails, contentModifier, onAlbum)
             result == null -> Spacer(contentModifier)
-            files.isEmpty() -> when {
-                searchOpen -> EmptyGallery(Icons.Rounded.Search, R.string.no_results, R.string.no_results_body, contentModifier)
-                page.section == Section.FAVORITES ->
-                    EmptyGallery(Icons.Rounded.FavoriteBorder, R.string.empty_favorites, R.string.empty_favorites_body, contentModifier)
-                page.filter != MediaFilter.ALL -> EmptyGallery(page.filter.icon, R.string.empty_filter, null, contentModifier)
-                else -> EmptyGallery(Icons.Rounded.Collections, R.string.empty_library, null, contentModifier)
-            }
             else -> {
                 val gridState = rememberLazyGridState()
                 if (searchOpen) LaunchedEffect(query) { gridState.scrollToItem(0) }
-                MediaGrid(
-                    result?.second.orEmpty(), gridState, thumbnails, positions, viewerKey,
-                    selection, active && !deletionBusy, contentModifier,
-                    onItem = { if (selection.isEmpty()) onOpen(it, files, positions) else onToggleSelection(it) },
-                    onLongPress = onToggleSelection
-                )
+                Box(contentModifier) {
+                    MediaGrid(
+                        result?.second.orEmpty(), gridState, thumbnails, positions, viewerKey,
+                        selection, active && !deletionBusy, Modifier.fillMaxSize(),
+                        onItem = { if (selection.isEmpty()) onOpen(it, files, positions) else onToggleSelection(it) },
+                        onLongPress = onToggleSelection
+                    )
+                    EmptyMediaOverlay(files.isEmpty(), searchOpen, page)
+                }
             }
+        }
+    }
+}
+
+@Composable
+private fun EmptyMediaOverlay(visible: Boolean, searchOpen: Boolean, page: GalleryPage) {
+    AnimatedVisibility(visible, enter = fadeIn(tween(160, 220)), exit = fadeOut(tween(100))) {
+        val modifier = Modifier.fillMaxSize()
+        when {
+            searchOpen -> EmptyGallery(Icons.Rounded.Search, R.string.no_results, R.string.no_results_body, modifier)
+            page.section == Section.FAVORITES -> EmptyGallery(
+                Icons.Rounded.FavoriteBorder, R.string.empty_favorites, R.string.empty_favorites_body, modifier
+            )
+            page.filter != MediaFilter.ALL -> EmptyGallery(page.filter.icon, R.string.empty_filter, null, modifier)
+            else -> EmptyGallery(Icons.Rounded.Collections, R.string.empty_library, null, modifier)
         }
     }
 }
@@ -685,7 +742,8 @@ private fun MediaGrid(
                     else -> titles[day.date].orEmpty()
                 }
                 Row(
-                    Modifier.fillMaxWidth().padding(start = 7.dp, end = 7.dp, top = 13.dp, bottom = 4.dp),
+                    Modifier.animateItem(fadeInSpec = null, fadeOutSpec = tween(170))
+                        .fillMaxWidth().padding(start = 7.dp, end = 7.dp, top = 13.dp, bottom = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium,
@@ -701,8 +759,21 @@ private fun MediaGrid(
                 val selecting = selection.isNotEmpty()
                 val shape = RoundedCornerShape(14.dp)
                 val colors = MaterialTheme.colorScheme
+                val selectionScale = animateFloatAsState(
+                    if (checked) 0.91f else 1f,
+                    spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMedium),
+                    label = "selection scale"
+                )
+                val badgeColor by animateColorAsState(
+                    if (checked) colors.primary else Color.Black.copy(alpha = 0.55f),
+                    tween(155), label = "selection badge color"
+                )
                 Box(
-                    Modifier.aspectRatio(1f).onGloballyPositioned { coords ->
+                    Modifier.animateItem(
+                        fadeInSpec = null,
+                        placementSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow),
+                        fadeOutSpec = tween(235, easing = FastOutSlowInEasing)
+                    ).aspectRatio(1f).onGloballyPositioned { coords ->
                         positions.tiles[item.key] = Rect(coords.positionInRoot(), Size(coords.size.width.toFloat(), coords.size.height.toFloat()))
                     }.graphicsLayer { alpha = if (hiddenKey == item.key) 0f else 1f }
                         .clip(shape)
@@ -719,20 +790,31 @@ private fun MediaGrid(
                             onClick = { onItem(item) }
                         )
                 ) {
-                    MediaThumbnail(item, thumbnails, size, Modifier.fillMaxSize())
-                    if (item.video) VideoBadge(item.duration, Modifier.align(Alignment.BottomEnd).padding(5.dp))
-                    if (checked) {
-                        Box(Modifier.matchParentSize().background(colors.primary.copy(alpha = 0.25f))
-                            .border(3.dp, colors.primary, shape))
+                    Box(
+                        Modifier.fillMaxSize().graphicsLayer {
+                            scaleX = selectionScale.value
+                            scaleY = selectionScale.value
+                        }.clip(shape)
+                    ) {
+                        MediaThumbnail(item, thumbnails, size, Modifier.fillMaxSize())
+                        if (item.video) VideoBadge(item.duration, Modifier.align(Alignment.BottomEnd).padding(5.dp))
+                        AnimatedVisibility(checked, Modifier.matchParentSize(), enter = fadeIn(tween(150)), exit = fadeOut(tween(135))) {
+                            Box(Modifier.fillMaxSize().background(colors.primary.copy(alpha = 0.20f))
+                                .border(3.dp, colors.primary, shape))
+                        }
                     }
-                    if (selecting) {
+                    AnimatedVisibility(
+                        selecting, Modifier.align(Alignment.TopEnd).padding(7.dp),
+                        enter = springBadgeEnter(), exit = scaleOut(tween(135), targetScale = 0.75f) + fadeOut(tween(120))
+                    ) {
                         Box(
-                            Modifier.align(Alignment.TopEnd).padding(7.dp).size(25.dp).clip(CircleShape)
-                                .background(if (checked) colors.primary else Color.Black.copy(alpha = 0.55f))
+                            Modifier.size(25.dp).clip(CircleShape).background(badgeColor)
                                 .border(1.dp, if (checked) colors.primary else Color.White, CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
-                            if (checked) Icon(Icons.Rounded.Check, null, Modifier.size(17.dp), tint = colors.onPrimary)
+                            AnimatedVisibility(
+                                checked, enter = springBadgeEnter(), exit = scaleOut(tween(120), targetScale = 0.65f) + fadeOut(tween(110))
+                            ) { Icon(Icons.Rounded.Check, null, Modifier.size(17.dp), tint = colors.onPrimary) }
                         }
                     }
                 }
@@ -740,6 +822,11 @@ private fun MediaGrid(
         }
     }
 }
+
+private fun springBadgeEnter() = scaleIn(
+    spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
+    initialScale = 0.65f
+) + fadeIn(tween(150))
 
 @Composable
 private fun AlbumGrid(albums: List<Album>, thumbnails: Thumbnails, modifier: Modifier, onAlbum: (Album) -> Unit) {
@@ -824,8 +911,12 @@ private fun EmptyGallery(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SettingsSheet(settings: GallerySettings, dark: Boolean, model: GalleryModel, onAccess: () -> Unit, close: () -> Unit) {
+private fun SettingsSheet(
+    settings: GallerySettings, dark: Boolean, model: GalleryModel, onAccess: () -> Unit,
+    canManageMedia: Boolean, onManageMedia: () -> Unit, close: () -> Unit
+) {
     val colors = MaterialTheme.colorScheme
+    var explainManagement by rememberSaveable { mutableStateOf(false) }
     ModalBottomSheet(
         onDismissRequest = close,
         sheetState = rememberBottomSheetState(SheetValue.Hidden, setOf(SheetValue.Hidden, SheetValue.Expanded)),
@@ -864,6 +955,13 @@ private fun SettingsSheet(settings: GallerySettings, dark: Boolean, model: Galle
             SettingsRow(Icons.Rounded.PhotoLibrary, R.string.media_access, Modifier.clickable(role = Role.Button, onClick = onAccess)) {
                 Icon(Icons.Rounded.ChevronRight, null, tint = colors.onSurfaceVariant)
             }
+            if (Build.VERSION.SDK_INT >= 31) {
+                SettingsRow(Icons.Rounded.DeleteOutline, R.string.media_management,
+                    Modifier.clickable(role = Role.Button) { explainManagement = true }) {
+                    if (canManageMedia) Icon(Icons.Rounded.Check, stringResource(R.string.media_management_enabled), tint = colors.primary)
+                    else Icon(Icons.Rounded.ChevronRight, null, tint = colors.onSurfaceVariant)
+                }
+            }
             Row(
                 Modifier.fillMaxWidth().padding(start = 3.dp, end = 3.dp, top = 5.dp),
                 horizontalArrangement = Arrangement.SpaceBetween
@@ -874,6 +972,20 @@ private fun SettingsSheet(settings: GallerySettings, dark: Boolean, model: Galle
                     style = MaterialTheme.typography.labelSmall)
             }
         }
+    }
+    if (explainManagement) {
+        AlertDialog(
+            onDismissRequest = { explainManagement = false },
+            title = { Text(stringResource(R.string.media_management)) },
+            text = { Text(stringResource(R.string.media_management_explanation)) },
+            dismissButton = { TextButton({ explainManagement = false }) { Text(stringResource(R.string.cancel)) } },
+            confirmButton = {
+                TextButton({
+                    explainManagement = false
+                    onManageMedia()
+                }) { Text(stringResource(R.string.open_system_settings)) }
+            }
+        )
     }
 }
 

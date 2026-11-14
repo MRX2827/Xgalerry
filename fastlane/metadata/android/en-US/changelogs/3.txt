@@ -1,0 +1,3 @@
+• New Xgalerry icon.
+• Animated selection, file removal, and closing the viewer after deletion.
+• Optional one-time media management access on Android 12 and later.
